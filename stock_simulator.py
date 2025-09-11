@@ -1,151 +1,127 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
 
+# ----------------------------
 # Page config
-st.set_page_config(page_title="Ito Drift-Diffusion Stock Simulator", layout="wide")
+# ----------------------------
+st.set_page_config(page_title="Stock Price Simulator", layout="wide")
 
-# Custom CSS styling
+# ----------------------------
+# Header
+# ----------------------------
 st.markdown(
     """
-    <style>
-    .main-header {text-align: center; font-size: 2.2em; font-weight: bold; margin-bottom: 0.2em;}
-    .sub-header {text-align: center; font-size: 1.2em; color: gray; margin-bottom: 1em;}
-    .stButton>button {background-color: #1f77b4; color: white; border-radius: 8px; padding: 0.6em 1.2em; font-weight: bold; border: none;}
-    .stButton>button:hover {background-color: #105289; color: white;}
-    .download-button {background-color: #1f77b4; color: white; border-radius: 8px; padding: 0.4em 1em; font-weight: bold; border: none;}
-    .download-button:hover {background-color: #105289; color: white;}
-    .metric-label {font-size: 1.1em; font-weight: 600;}
-    .metric-value {font-size: 1.4em; font-weight: bold; color: #1f77b4;}
-    </style>
+    <h1 style="text-align: center; color: #2E86C1; margin-bottom: 0;">
+        📈 Stock Price Simulator
+    </h1>
+    <p style="text-align: center; color: gray; font-size: 16px; margin-top: 0;">
+        Based on the Ito drift-diffusion process
+    </p>
     """,
     unsafe_allow_html=True,
 )
 
-# Header
-st.markdown('<div class="main-header">Ito Drift-Diffusion Stock Price Simulator</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Explore stock price paths under geometric Brownian motion</div>', unsafe_allow_html=True)
+st.write("---")
 
-# Sidebar inputs
-st.sidebar.header("Simulation Inputs")
-S0 = st.sidebar.number_input("Initial Stock Price", value=100.0, min_value=1.0)
-mu_pct = st.sidebar.number_input("Expected Return (% per annum)", value=10.0, min_value=-100.0, max_value=100.0)
-sigma_pct = st.sidebar.number_input("Volatility (% per annum)", value=20.0, min_value=0.0, max_value=500.0)
-years = st.sidebar.number_input("Period (years, max 10)", value=1.0, min_value=0.1, max_value=10.0)
-trading_days = st.sidebar.number_input("Trading Days per Year", value=252, min_value=1)
-trading_hours_per_day = st.sidebar.number_input("Trading Hours per Day", value=6, min_value=1)
-n_paths = st.sidebar.slider("Number of Paths", 1, 50, 5)
-seed = st.sidebar.number_input("Random Seed (0 = none)", value=0, min_value=0)
+# ----------------------------
+# Mobile detection with JS
+# ----------------------------
+is_mobile = st.session_state.get("is_mobile", False)
 
-# Convert to decimals
-mu = mu_pct / 100
-sigma = sigma_pct / 100
+detect_mobile = """
+<script>
+var isMobile = window.innerWidth < 768;
+var streamlitDoc = window.parent.document;
+streamlitDoc.dispatchEvent(new CustomEvent("streamlit:setComponentValue", {detail: {key: "is_mobile", value: isMobile}}));
+</script>
+"""
+st.components.v1.html(detect_mobile, height=0)
 
-# Run simulation button
-if st.button("Run Simulation"):
-    # Set random seed
-    if seed != 0:
-        np.random.seed(int(seed))
-    else:
-        np.random.seed(None)
+if "is_mobile" not in st.session_state:
+    st.session_state.is_mobile = False
 
-    hours_per_year = trading_days * trading_hours_per_day
-    n_steps = int(years * hours_per_year)
-    dt = 1 / hours_per_year
+# ----------------------------
+# Inputs
+# ----------------------------
+st.subheader("Simulation Inputs")
 
-    # Simulation
-    paths = np.zeros((n_paths, n_steps + 1))
-    paths[:, 0] = S0
-
-    for i in range(1, n_steps + 1):
-        Z = np.random.standard_normal(n_paths)
-        paths[:, i] = paths[:, i - 1] * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z)
-
-    # Time grid in years
-    time_grid = np.linspace(0, years, n_steps + 1)
-
-    # Plot simulated paths
-    fig = go.Figure()
-    for i in range(n_paths):
-        fig.add_scatter(x=time_grid, y=paths[i], mode="lines", line=dict(width=1), name=f"Path {i+1}")
-
-    fig.update_layout(
-        title={"text": "Simulated Stock Price Paths", "x": 0.5, "xanchor": "center", "font": {"size": 22}},
-        xaxis_title="Time (years)",
-        yaxis_title="Stock Price",
-        xaxis=dict(
-            tickmode='linear',
-            dtick=1,
-            range=[0, years],
-            showgrid=True,
-            gridcolor='gray',
-            gridwidth=2
-        ),
-        yaxis=dict(showgrid=True, gridcolor='lightgray', gridwidth=0.5)
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Final prices
-    final_prices = paths[:, -1]
-    mean_price = np.mean(final_prices)
-    median_price = np.median(final_prices)
-    path1_final = final_prices[0]
-
-    col1, col2, col3 = st.columns(3)
+if st.session_state.is_mobile:
+    # Mobile → stacked inputs
+    initial_price = st.number_input("Initial Stock Price", min_value=1.0, value=100.0, step=1.0)
+    mu = st.number_input("Expected Return (% per annum)", value=10.0, step=0.1)
+    sigma = st.number_input("Volatility (% per annum)", value=20.0, step=0.1)
+    T = st.number_input("Time Horizon (years, max 10)", min_value=1, max_value=10, value=1)
+    n_sims = st.slider("Number of Simulations", min_value=10, max_value=500, value=100, step=10)
+else:
+    # Desktop → 2-column layout
+    col1, col2 = st.columns(2)
     with col1:
-        st.markdown(f"<div class='metric-label'>Mean Final Price</div><div class='metric-value'>{mean_price:.2f}</div>", unsafe_allow_html=True)
+        initial_price = st.number_input("Initial Stock Price", min_value=1.0, value=100.0, step=1.0)
+        mu = st.number_input("Expected Return (% per annum)", value=10.0, step=0.1)
     with col2:
-        st.markdown(f"<div class='metric-label'>Median Final Price</div><div class='metric-value'>{median_price:.2f}</div>", unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"<div class='metric-label'>Final Price (Path 1)</div><div class='metric-value'>{path1_final:.2f}</div>", unsafe_allow_html=True)
+        sigma = st.number_input("Volatility (% per annum)", value=20.0, step=0.1)
+        T = st.number_input("Time Horizon (years, max 10)", min_value=1, max_value=10, value=1)
+    n_sims = st.slider("Number of Simulations", min_value=10, max_value=500, value=100, step=10)
 
-    # Summary box
-    st.markdown(
-        """
-        ---
-        **Summary:**
-        - The **mean final price** across all simulated paths is shown.
-        - The **median final price** indicates the 50th percentile outcome.
-        - The **final price of Path 1** is displayed as an example single trajectory.
-        """
-    )
+# ----------------------------
+# Simulation
+# ----------------------------
+dt = 1 / (252 * 6.5)  # 1 trading hour
+n_steps = int(T / dt)
 
-    # Calculate annualized returns
-    annualized_returns = (final_prices / S0) ** (1 / years) - 1
-    annualized_returns_pct = annualized_returns * 100
+def simulate_stock_paths(S0, mu, sigma, T, n_sims, dt):
+    n_steps = int(T / dt)
+    paths = np.zeros((n_steps + 1, n_sims))
+    paths[0] = S0
+    for t in range(1, n_steps + 1):
+        Z = np.random.standard_normal(n_sims)
+        paths[t] = paths[t - 1] * np.exp((mu/100 - 0.5*(sigma/100)**2)*dt + (sigma/100)*np.sqrt(dt)*Z)
+    return paths
 
-    # Histogram of annualized returns with finer bins and clearer gridlines
-    hist_return_fig = go.Figure()
-    hist_return_fig.add_histogram(
-        x=annualized_returns_pct,
-        nbinsx=50,
-        name="Annualized Returns (%)",
-        marker_color='#1f77b4',
-        opacity=0.8
-    )
-    hist_return_fig.update_layout(
-        title={"text": "Distribution of Annualized Returns (% per annum)", "x": 0.5, "xanchor": "center", "font": {"size": 20}},
-        xaxis_title="Annualized Return (%)",
-        yaxis_title="Frequency",
-        yaxis=dict(showgrid=True, gridcolor='gray', gridwidth=1)
-    )
-    st.plotly_chart(hist_return_fig, use_container_width=True)
+if st.button("▶️ Run Simulation", type="primary", use_container_width=True):
+    paths = simulate_stock_paths(initial_price, mu, sigma, T, n_sims, dt)
 
-    # Download CSV
-    df = pd.DataFrame(paths.T, columns=[f"Path {i+1}" for i in range(n_paths)])
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Data (CSV)", data=csv, file_name="simulation_paths.csv", mime="text/csv", key="download_csv", help="Download simulated paths", type="primary")
+    # Detect theme (dark or light)
+    theme_bg = st.get_option("theme.base")  # "light" or "dark"
+    dark_mode = theme_bg == "dark"
 
-    # Simulate Again button
-    if st.button("Simulate Again"):
-        st.rerun()
+    # Plot stock price simulation
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(paths, linewidth=0.7, alpha=0.6, color="#2E86C1")
+    ax.set_title(f"Simulated Stock Price Paths over {T} year(s)", fontsize=14, color="white" if dark_mode else "black")
+    ax.set_xlabel("Time (Years)", color="white" if dark_mode else "black")
+    ax.set_ylabel("Stock Price", color="white" if dark_mode else "black")
+    ax.grid(True, alpha=0.3, color="white" if dark_mode else "gray")
 
-# Footer credit
+    # Set x-axis ticks in yearly increments
+    x_ticks = np.linspace(0, n_steps, T + 1)
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels([str(i) for i in range(T + 1)], color="white" if dark_mode else "black")
+    ax.tick_params(axis="y", colors="white" if dark_mode else "black")
+
+    st.pyplot(fig)
+
+    # Plot histogram of annualized returns
+    annualized_returns = (paths[-1] / initial_price) ** (1/T) - 1
+    fig2, ax2 = plt.subplots(figsize=(8, 4))
+    ax2.hist(annualized_returns * 100, bins=50, color="#2E86C1", edgecolor="white", alpha=0.9)
+    ax2.set_title("Distribution of Annualized Returns", fontsize=14, color="white" if dark_mode else "black")
+    ax2.set_xlabel("Annualized Return (%)", color="white" if dark_mode else "black")
+    ax2.set_ylabel("Frequency", color="white" if dark_mode else "black")
+    ax2.grid(True, alpha=0.4, color="white" if dark_mode else "gray")
+    ax2.tick_params(axis="x", colors="white" if dark_mode else "black")
+    ax2.tick_params(axis="y", colors="white" if dark_mode else "black")
+    st.pyplot(fig2)
+
+# ----------------------------
+# Footer
+# ----------------------------
 st.markdown(
-    "<div style='text-align: center; font-size: 0.85em; color: gray; margin-top: 2em;'>"
-    "Developed by Uday Damodaran for pedagogical purposes only"
-    "</div>",
+    """
+    <p style="text-align: center; color: #888888; font-size: 13px; margin-top: 40px;">
+        Developed by Uday Damodaran for pedagogical purposes only
+    </p>
+    """,
     unsafe_allow_html=True,
 )
